@@ -1,36 +1,31 @@
-import { createSlice, createAsyncThunk, PayloadAction } from "@reduxjs/toolkit";
+import { createSlice, createAsyncThunk, PayloadAction, SerializedError } from "@reduxjs/toolkit";
 import axios from "axios";
-
 
 interface Product {
   id: number;
   title: string;
   description: string;
   category: string;
-  image: string; 
+  image: string;
   price: string;
-  
 }
-
 
 export interface CartItem {
   id: number;
   title: string;
   description: string;
   category: string;
-  image: string; 
+  image: string;
   price: string;
   quantity: number;
 }
 
-
 export interface ProductState {
   products: Product[];
-  cart: CartItem[]; 
+  cart: CartItem[];
   status: "idle" | "loading" | "succeeded" | "failed";
-  error: string | null;
+  error: string | SerializedError  | null;
 }
-
 
 const initialState: ProductState = {
   products: [],
@@ -39,34 +34,32 @@ const initialState: ProductState = {
   error: null,
 };
 
-
-export const fetchProducts = createAsyncThunk(
+export const fetchProducts = createAsyncThunk<Product[], void, { rejectValue: string }>(
   "products/fetchProducts",
-  async () => {
+  async (_, thunkAPI) => {
     try {
       const response = await axios.get<Product[]>('https://fakestoreapi.com/products');
       return response.data;
     } catch (error) {
-      throw error;
+      const message =
+        error instanceof Error ? error.message : "Something went wrong while fetching the products.";
+      return thunkAPI.rejectWithValue(message);
     }
   }
 );
 
-// Define a reducer to add item to cart
+type ProductSliceActions = typeof addToCart.actions;
+
 export const addToCart = createSlice({
   name: "products",
   initialState,
   reducers: {
-   
     addItemToCart(state, action: PayloadAction<CartItem>) {
       const newItem = action.payload;
-      // @ts-ignore
-    if (newItem && newItem.id) {
-      //@ts-ignore
+      if (newItem && newItem.id) {
         const existingItemIndex = state.cart.findIndex(item => item.id === newItem.id);
 
-       if (existingItemIndex !== -1) {
-          
+        if (existingItemIndex !== -1) {
           state.cart[existingItemIndex].quantity++;
         } else {
           state.cart.push({ ...newItem, quantity: 1 });
@@ -78,7 +71,7 @@ export const addToCart = createSlice({
     clearCart(state) {
       state.cart = [];
     },
-     updateQuantity(state, action: PayloadAction<{ itemId: number; change: number }>) {
+    updateQuantity(state, action: PayloadAction<{ itemId: number; change: number }>) {
       const { itemId, change } = action.payload;
       const itemToUpdate = state.cart.find(item => item.id === itemId);
 
@@ -92,27 +85,33 @@ export const addToCart = createSlice({
   },
   extraReducers: (builder) => {
     builder
-      
       .addCase(fetchProducts.pending, (state) => {
         state.status = "loading";
       })
-      
       .addCase(fetchProducts.fulfilled, (state, action: PayloadAction<Product[]>) => {
         state.status = "succeeded";
         state.products = action.payload;
       })
-     
-      //@ts-ignore
-      .addCase(fetchProducts.rejected, (state, action: PayloadAction<string>) => {
-        state.status = "failed";
-        state.error = action.payload;
-      });
+      .addMatcher(
+        (action) => action.type.endsWith("/rejected"),
+        (state, action: PayloadAction<string | SerializedError>) => {
+          state.status = "failed";
+          if (action.payload instanceof Error) {
+            state.error = action.payload.message;
+          } else {
+            state.error = action.payload;
+          }
+        }
+      );
   },
 });
 
+type ProductSliceReducer = typeof addToCart.reducer;
+
+export type ProductSlice = ProductSliceActions & ProductSliceReducer;
 
 export const productActions = { ...addToCart.actions, fetchProducts };
 
 export default addToCart.reducer;
 
-export type RootState = ReturnType<typeof addToCart.reducer>;
+export type RootState = ReturnType<ProductSliceReducer>;
